@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>NUMBER BLUFF</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --yellow: #FFD000;
+      --red: #E8200A;
+      --blue: #1845D4;
+      --dark: #1a1010;
+      --white: #ffffff;
+      --red-faint: rgba(232,32,10,0.10);
+      --red-mid: rgba(232,32,10,0.22);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      background: var(--yellow);
+      color: var(--red);
+      font-family: 'Nunito', sans-serif;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 24px 18px 48px;
+      overflow-x: hidden;
+    }
+
+    /* ── Screens ── */
+    .screen { display: none; width: 100%; max-width: 440px; flex-direction: column; gap: 14px; }
+    .screen.active { display: flex; }
+
+    /* ── Typography ── */
+    .display {
+      font-family: 'Lilita One', sans-serif;
+      text-transform: uppercase;
+      line-height: 0.92;
+      letter-spacing: -0.5px;
+    }
+
+    .logo {
+      text-align: center;
+      padding-top: 8px;
+    }
+    .logo .top-line {
+      font-family: 'Nunito', sans-serif;
+      font-weight: 900;
+      font-size: 0.95rem;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+      color: var(--red);
+      opacity: 0.7;
+    }
+    .logo .main-title {
+      font-family: 'Lilita One', sans-serif;
+      font-size: 4.2rem;
+      text-transform: uppercase;
+      line-height: 0.9;
+      color: var(--red);
+      letter-spacing: -1px;
+    }
+    .logo .sub-line {
+      font-family: 'Nunito', sans-serif;
+      font-weight: 800;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--blue);
+      margin-top: 6px;
+    }
+
+    /* ── Sun doodle ── */
+    .sun {
+      display: inline-block;
+      width: 36px; height: 36px;
+      vertical-align: middle;
+      margin-left: 4px;
+      position: relative;
+      top: -4px;
+    }
+
+    /* ── Cards ── */
+    .card {
+      background: rgba(255,255,255,0.45);
+      border: 2.5px solid var(--red);
+      border-radius: 18px;
+      padding: 18px 18px;
+    }
+    .card-solid {
+      background: var(--red);
+      border-radius: 18px;
+      padding: 18px;
+      color: var(--yellow);
+    }
+
+    /* ── Labels ── */
+    .lbl {
+      font-family: 'Nunito', sans-serif;
+      font-weight: 900;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 2.5px;
+      color: var(--red);
+      opacity: 0.6;
+      margin-bottom: 8px;
+    }
+    .card-solid .lbl { color: var(--yellow); opacity: 0.75; }
+
+    /* ── Inputs ── */
+    .input {
+      width: 100%;
+      padding: 14px 16px;
+      background: rgba(255,255,255,0.6);
+      border: 2.5px solid var(--red);
+      border-radius: 12px;
+      color: var(--red);
+      font-family: 'Nunito', sans-serif;
+      font-weight: 800;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .input:focus { background: rgba(255,255,255,0.85); }
+    .input::placeholder { color: rgba(232,32,10,0.35); }
+    .input-code {
+      text-transform: uppercase;
+      letter-spacing: 8px;
+      font-family: 'Lilita One', sans-serif;
+      font-size: 1.8rem;
+      text-align: center;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      width: 100%;
+      padding: 16px;
+      border-radius: 14px;
+      border: none;
+      font-family: 'Lilita One', sans-serif;
+      font-size: 1.15rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+      transition: transform 0.1s, opacity 0.15s;
+    }
+    .btn:active { transform: scale(0.96); }
+    .btn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+
+    .btn-red {
+      background: var(--red);
+      color: var(--yellow);
+      border: 2.5px solid var(--dark);
+      box-shadow: 3px 3px 0 var(--dark);
+    }
+    .btn-red:active { box-shadow: 1px 1px 0 var(--dark); transform: translate(2px, 2px); }
+
+    .btn-blue {
+      background: var(--blue);
+      color: var(--white);
+      border: 2.5px solid var(--dark);
+      box-shadow: 3px 3px 0 var(--dark);
+    }
+    .btn-blue:active { box-shadow: 1px 1px 0 var(--dark); transform: translate(2px, 2px); }
+
+    .btn-outline {
+      background: transparent;
+      color: var(--red);
+      border: 2.5px solid var(--red);
+    }
+
+    /* ── Room Code Big ── */
+    .bigcode {
+      font-family: 'Lilita One', sans-serif;
+      font-size: 3rem;
+      letter-spacing: 10px;
+      color: var(--red);
+      text-align: center;
+      line-height: 1;
+      padding: 4px 0;
+    }
+
+    /* ── QR ── */
+    .qr-wrap {
+      display: flex; justify-content: center; padding: 2px 0;
+    }
+    .qr-wrap img {
+      border-radius: 12px;
+      border: 3px solid var(--red);
+    }
+
+    /* ── Player list ── */
+    .plist { display: flex; flex-direction: column; gap: 8px; }
+    .pitem {
+      display: flex; align-items: center; gap: 10px;
+      padding: 11px 14px;
+      background: rgba(255,255,255,0.5);
+      border: 2px solid var(--red);
+      border-radius: 11px;
+      font-family: 'Nunito', sans-serif;
+      font-weight: 800;
+      font-size: 0.95rem;
+      color: var(--dark);
+    }
+    .pdot { width: 10px; height: 10px; border-radius: 50%; background: var(--blue); flex-shrink: 0; border: 2px solid var(--dark); }
+    .pdot.off { background: rgba(232,32,10,0.25); }
+    .pname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pyou { color: var(--red); font-size: 0.7rem; margin-left: 4px; opacity: 0.6; }
+    .plives { display: flex; gap: 2px; flex-shrink: 0; }
+    .lheart { font-size: 0.8rem; }
+    .lheart.lost { opacity: 0.15; }
+    .pelim {
+      font-family: 'Lilita One', sans-serif;
+      font-size: 0.7rem;
+      color: var(--red);
+      opacity: 0.5;
+      letter-spacing: 1px;
+    }
+
+    /* ── My Number ── */
+    .num-display { text-align: center; padding: 6px 0; }
+    .num-lbl-sm {
+      font-family: 'Nunito', sans-serif;
+      font-weight: 900;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 2.5px;
+      color: var(--yellow);
+      opacity: 0.75;
+    }
+    .num-big {
+      font-family: 'Lilita One', sans-serif;
+      font-size: 6.5rem;
+      color: var(--yellow);
+      line-height: 0.95;
+    }
+    .num-sub {
+      font-family: 'Nunito', sans-serif;
+      font-weight: 700;
+      font-size: 0.78rem;
+      color: var(--yellow);
+      opacity: 0.65;
+      margin-top: 6px;
+    }
+
+    /* ── Bid display ── */
+    .bid-main {
+      font-family: 'Lilita One', sans-serif;
+      font-size: 2rem;
+      color: var(--red);
+      text-align: center;
+      line-height: 1;
+    }
+    .bid-by {
+      font-family: 'Nunito', sans-serif;
+      font-weight: 700;
+      font-size: 0.78rem;
+      color: var(--red);
+      opacity: 0.55;
+      text-align: center;
+      margin-top: 4px;
+    }
+    .no-bid {
+      font-family: 'Nunito', sans-serif;
+      font-weight: 700;
+      font-size: 0.85rem;
+      color: var(--red);
+      opacity: 0.5;
+      text-align: center;
+      font-style: italic;
+    }
+
+    /* ── Turn banner ── */
+    .turn {
+      padding: 14px 18px;
+      border-radius: 14px;
+      text-align: center;
+      font-family: 'Lilita One', sans-serif;
+      font-size: 1.1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .turn.mine {
+      background: var(--blue);
+      color: var(--white);
+      border: 2.5px solid var(--dark);
+      box-shadow: 3px 3px 0 var(--dark);
+      animation: bounce 1.6s ease-in-out infinite;
+    }
+    .turn.wait {
+      background: rgba(255,255,255,0.4);
+      border: 2px solid var(--red);
+      color: var(--red);
+      opacity: 0.6;
+    }
+    @keyframes bounce {
+      0%,100% { transform: translateY(0); }
+      50% { transform: translateY(-3px); }
+    }
+
+    /* ── Steppers ── */
+    .steppers { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .stepper {
+      display: flex; align-items: center;
+      border: 2.5px solid var(--red);
+      border-radius: 12px; overflow: hidden;
+      background: rgba(255,255,255,0.5);
+    }
+    .sbtn {
+      width: 46px; height: 58px; border: none;
+      background: transparent;
+      color: var(--red);
+      font-family: 'Lilita One', sans-serif;
+      font-size: 1.6rem; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; transition: background 0.1s;
+    }
+    .sbtn:active { background: rgba(232,32,10,0.12); }
+    .sval {
+      flex: 1; text-align: center;
+      font-family: 'Lilita One', sans-serif;
+      font-size: 1.9rem;
+      color: var(--red);
+      background: rgba(255,255,255,0.3);
+      height: 58px; display: flex; align-items: center; justify-content: center;
+      border-left: 1.5px solid rgba(232,32,10,0.2);
+      border-right: 1.5px solid rgba(232,32,10,0.2);
+    }
+    .slbl {
+      font-family: 'Nunito', sans-serif;
+      font-weight: 900;
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--red);
+      opacity: 0.55;
+      text-align: center;
+      margin-top: 6px;
+    }
+
+    /* ── Reveal grid ── */
+    .rgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; }
+    .rcard {
+      background: rgba(255,255,255,0.45);
+      border: 2.5px solid var(--red);
+      border-radius: 12px; padding: 10px 6px; text-align: center;
+    }
+    .rcard.lit {
+      background: var(--red);
+      border-color: var(--dark);
+    }
+    .rnum {
+      font-family: 'Lilita One', sans-serif;
+      font-size: 2.4rem; color: var(--red); line-height: 1;
+    }
+    .rcard.lit .rnum { color: var(--yellow); }
+    .rname {
+      font-family: 'Nunito', sans-serif;
+      font-weight: 800;
+      font-size: 0.62rem; color: var(--red); opacity: 0.6;
+      margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .rcard.lit .rname { color: var(--yellow); opacity: 0.75; }
+
+    /* ── Result banners ── */
+    .result {
+      padding: 20px; border-radius: 16px; text-align: center;
+      border: 2.5px solid var(--dark);
+      box-shadow: 3px 3px 0 var(--dark);
+    }
+    .result.good { background: var(--blue); }
+    .result.bad  { background: var(--red); }
+    .result-title {
+      font-family: 'Lilita One', sans-serif;
+      font-size: 1.6rem; text-transform: uppercase; color: var(--white);
+    }
+    .result-sub {
+      font-family: 'Nunito', sans-serif;
+      font-weight: 700; font-size: 0.85rem; color: rgba(255,255,255,0.75); margin-top: 6px;
+    }
+
+    /* ── Winner ── */
+    .winner-wrap { text-align: center; padding: 16px 0 6px; }
+    .winner-emoji { font-size: 4rem; }
+    .winner-name {
+      font-family: 'Lilita One', sans-serif;
+      font-size: 3rem; color: var(--red);
+      text-transform: uppercase; margin-top: 6px; line-height: 0.95;
+    }
+    .winner-sub {
+      font-family: 'Nunito', sans-serif;
+      font-weight: 800; color: var(--red); opacity: 0.55;
+      font-size: 0.85rem; margin-top: 6px; text-transform: uppercase; letter-spacing: 2px;
+    }
+
+    /* ── Toast ── */
+    .toast {
+      position: fixed; bottom: 24px; left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: var(--dark); color: var(--yellow);
+      font-family: 'Nunito', sans-serif; font-weight: 800;
+      border-radius: 12px; padding: 12px 22px;
+      font-size: 0.88rem; transition: transform 0.28s ease;
+      z-index: 999; white-space: nowrap; max-width: 90vw;
+      text-align: center; pointer-events: none;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* ── Dots ── */
+    .dots::after { content: ''; animation: dots 1.5s steps(4,end) infinite; }
+    @keyframes dots { 0%,20%{content:''} 40%{content:'.'} 60%{content:'..'} 80%,100%{content:'...'} }
+
+    /* ── How to play rules card ── */
+    .rules {
+      background: rgba(255,255,255,0.35);
+      border: 2px dashed rgba(232,32,10,0.4);
+      border-radius: 14px;
+      padding: 14px 16px;
+      font-family: 'Nunito', sans-serif;
+      font-weight: 700;
+      font-size: 0.8rem;
+      color: var(--red);
+      opacity: 0.75;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══════════ HOME ══════════ -->
+<div id="s-home" class="screen active">
+  <div class="logo">
+    <div class="top-line">A dinner table game ✦ 2–8 players</div>
+    <div class="main-title">NUMBER<br>BLUFF
+      <svg class="sun" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="20" cy="20" r="7" stroke="#1845D4" stroke-width="2.5" fill="none"/>
+        <line x1="20" y1="2" x2="20" y2="9" stroke="#1845D4" stroke-width="2.5" stroke-linecap="round"/>
+        <line x1="20" y1="31" x2="20" y2="38" stroke="#1845D4" stroke-width="2.5" stroke-linecap="round"/>
+        <line x1="2" y1="20" x2="9" y2="20" stroke="#1845D4" stroke-width="2.5" stroke-linecap="round"/>
+        <line x1="31" y1="20" x2="38" y2="20" stroke="#1845D4" stroke-width="2.5" stroke-linecap="round"/>
+        <line x1="6.4" y1="6.4" x2="11.3" y2="11.3" stroke="#1845D4" stroke-width="2.5" stroke-linecap="round"/>
+        <line x1="28.7" y1="28.7" x2="33.6" y2="33.6" stroke="#1845D4" stroke-width="2.5" stroke-linecap="round"/>
+        <line x1="33.6" y1="6.4" x2="28.7" y2="11.3" stroke="#1845D4" stroke-width="2.5" stroke-linecap="round"/>
+        <line x1="11.3" y1="28.7" x2="6.4" y2="33.6" stroke="#1845D4" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+    </div>
+  </div>
+  <div class="card">
+    <div class="lbl">Your name</div>
+    <input id="inp-name" class="input" type="text" placeholder="What do they call you?" maxlength="16" autocomplete="off" autocorrect="off">
+  </div>
+  <button class="btn btn-red" onclick="doHost()">🎲 Host a Game</button>
+  <button class="btn btn-outline" onclick="goJoin()">🔗 Join a Game</button>
+  <div class="rules">
+    Everyone gets a secret number 1–6. Take turns bidding how many of a number exist across all players. Call someone's bluff — if you're wrong, you lose a life. Last one standing wins. 3 lives each.
+  </div>
+</div>
+
+<!-- ══════════ JOIN ══════════ -->
+<div id="s-join" class="screen">
+  <div class="logo">
+    <div class="main-title" style="font-size:3rem">NUMBER BLUFF</div>
+  </div>
+  <div class="card">
+    <div class="lbl">Your name</div>
+    <input id="join-name" class="input" type="text" placeholder="Your name" maxlength="16" autocomplete="off" autocorrect="off">
+  </div>
+  <div class="card">
+    <div class="lbl">Room code</div>
+    <input id="join-code" class="input input-code" type="text" placeholder="ABC123" maxlength="6" autocomplete="off" autocorrect="off" autocapitalize="characters">
+  </div>
+  <button class="btn btn-red" onclick="doJoin()">Join Game →</button>
+  <button class="btn btn-outline" onclick="show('s-home')">← Back</button>
+</div>
+
+<!-- ══════════ LOBBY HOST ══════════ -->
+<div id="s-lhost" class="screen">
+  <div class="logo">
+    <div class="top-line">Share this code</div>
+    <div class="bigcode" id="disp-code">------</div>
+  </div>
+  <div class="qr-wrap"><img id="qr-img" src="" width="148" height="148" alt="QR Code"></div>
+  <div class="card">
+    <div class="lbl">Players (<span id="pcount">1</span>) — need at least 2</div>
+    <div class="plist" id="hl-plist"></div>
+  </div>
+  <button class="btn btn-red" id="btn-start" onclick="doStart()" disabled>Start Game</button>
+</div>
+
+<!-- ══════════ LOBBY PLAYER ══════════ -->
+<div id="s-lplayer" class="screen">
+  <div class="logo">
+    <div class="top-line">You're in!</div>
+    <div class="bigcode" id="pl-code" style="font-size:2.5rem; letter-spacing:8px">------</div>
+  </div>
+  <div class="card">
+    <div class="lbl">Players</div>
+    <div class="plist" id="pl-plist"></div>
+  </div>
+  <div class="turn wait">Waiting for host to start<span class="dots"></span></div>
+</div>
+
+<!-- ══════════ PLAYING ══════════ -->
+<div id="s-play" class="screen">
+  <div class="card-solid num-display">
+    <div class="num-lbl-sm">Your secret number</div>
+    <div class="num-big" id="my-num">?</div>
+    <div class="num-sub" id="play-sub"></div>
+  </div>
+
+  <div class="card" id="bid-card">
+    <div class="lbl">Current Bid</div>
+    <div id="bid-content"><div class="no-bid">No bid yet — first one sets the opening</div></div>
+  </div>
+
+  <div class="turn" id="turn-banner">Loading<span class="dots"></span></div>
+
+  <div id="bid-area" style="display:none; flex-direction:column; gap:12px;">
+    <div class="steppers">
+      <div>
+        <div class="stepper">
+          <button class="sbtn" onclick="adj('q',-1)">−</button>
+          <div class="sval" id="sv-q">1</div>
+          <button class="sbtn" onclick="adj('q',1)">+</button>
+        </div>
+        <div class="slbl">Quantity</div>
+      </div>
+      <div>
+        <div class="stepper">
+          <button class="sbtn" onclick="adj('f',-1)">−</button>
+          <div class="sval" id="sv-f">1</div>
+          <button class="sbtn" onclick="adj('f',1)">+</button>
+        </div>
+        <div class="slbl">Number</div>
+      </div>
+    </div>
+    <button class="btn btn-blue" onclick="doBid()">Bid: <span id="bid-preview">1 × 1</span></button>
+    <button class="btn btn-red" id="btn-bluff" onclick="doChallenge()" style="display:none;">🔥 Call Bluff!</button>
+  </div>
+</div>
+
+<!-- ══════════ REVEAL ══════════ -->
+<div id="s-reveal" class="screen">
+  <div class="logo">
+    <div class="top-line" style="font-size:0.9rem; letter-spacing:2px">Numbers Revealed</div>
+  </div>
+  <div class="card">
+    <div class="rgrid" id="rev-grid"></div>
+  </div>
+  <div class="card">
+    <div class="lbl">The Bid Was</div>
+    <div id="rev-bid" style="text-align:center; font-family:'Lilita One',sans-serif; font-size:1.4rem; color:var(--red);"></div>
+  </div>
+  <div class="result" id="rev-result"></div>
+  <div class="card">
+    <div class="lbl">Lives</div>
+    <div class="plist" id="rev-lives"></div>
+  </div>
+  <button class="btn btn-red" id="btn-next" onclick="doNext()" style="display:none;">Next Round →</button>
+  <div class="turn wait" id="rev-wait" style="display:none;">Waiting for host<span class="dots"></span></div>
+</div>
+
+<!-- ══════════ GAME OVER ══════════ -->
+<div id="s-over" class="screen">
+  <div class="winner-wrap">
+    <div class="winner-emoji">🏆</div>
+    <div class="winner-name" id="win-name">???</div>
+    <div class="winner-sub">wins the game!</div>
+  </div>
+  <div class="card">
+    <div class="lbl">Final Standings</div>
+    <div class="plist" id="over-list"></div>
+  </div>
+  <button class="btn btn-red" id="btn-again" onclick="doAgain()">Play Again</button>
+  <button class="btn btn-outline" onclick="location.reload()">Back to Home</button>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
+<script>
+// Robust PeerJS config — explicit server + multiple STUN servers
+const PEER_CFG = {
+  debug: 0,
+  host: '0.peerjs.com',
+  port: 443,
+  secure: true,
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:global.stun.twilio.com:3478' },
+    ]
+  }
+};
+</script>
+<script>
+// ─────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────
+const MAX_LIVES = 3;
+const NUM_MIN = 1;
+const NUM_MAX = 6;
+
+// ─────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────
+let peer = null;
+let myName = '';
+let roomCode = '';
+let isHost = false;
+let myNumber = null;
+let myPeerId = null;
+
+// Host-only
+let hConns = {};
+let G = {
+  phase: 'lobby',
+  players: [],
+  numbers: {},
+  bidder: null,
+  bid: null,
+  challenger: null,
+  loser: null,
+  winner: null,
+};
+
+// Client-only
+let hostConn = null;
+let lastState = null;
+
+// Bid UI
+let bq = 1, bf = 1;
+
+// ─────────────────────────────────────────
+// UTILS
+// ─────────────────────────────────────────
+function show(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  window.scrollTo(0, 0);
+}
+
+function toast(msg, ms = 3200) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), ms);
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function genCode() {
+  const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from({length:6}, () => c[Math.random()*c.length|0]).join('');
+}
+
+function hearts(n, max) {
+  let h = '';
+  for (let i = 0; i < max; i++) h += `<span class="lheart ${i >= n ? 'lost' : ''}">❤️</span>`;
+  return h;
+}
+
+function myId() { return myPeerId; }
+
+function renderPlist(elId, players, showLives) {
+  const el = document.getElementById(elId);
+  if (!players.length) {
+    el.innerHTML = '<div style="color:var(--red);opacity:0.4;text-align:center;padding:8px;font-weight:800;font-size:0.85rem">No one yet...</div>';
+    return;
+  }
+  el.innerHTML = players.map(p => {
+    const isMe = p.id === myId();
+    const elim = p.lives === 0;
+    return `<div class="pitem" style="${elim ? 'opacity:0.4' : ''}">
+      <div class="pdot ${p.connected===false ? 'off' : ''}"></div>
+      <span class="pname">${esc(p.name)}${isMe ? '<span class="pyou">(you)</span>' : ''}</span>
+      ${showLives ? `<div class="plives">${elim ? '<span class="pelim">OUT</span>' : hearts(p.lives, MAX_LIVES)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// ─────────────────────────────────────────
+// HOME / JOIN NAV
+// ─────────────────────────────────────────
+function goJoin() {
+  const name = document.getElementById('inp-name').value.trim();
+  if (name) document.getElementById('join-name').value = name;
+  const params = new URLSearchParams(location.search);
+  const code = params.get('room');
+  if (code) document.getElementById('join-code').value = code.toUpperCase();
+  show('s-join');
+}
+
+// ─────────────────────────────────────────
+// HOST
+// ─────────────────────────────────────────
+function doHost() {
+  const name = document.getElementById('inp-name').value.trim();
+  if (!name) { toast('Enter your name first!'); return; }
+
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+    toast('⚠️ Open this over HTTPS (e.g. via Netlify) for multiplayer to work', 6000);
+    return;
+  }
+
+  myName = name;
+  isHost = true;
+  roomCode = genCode();
+  myPeerId = `nb-${roomCode}-host`;
+
+  peer = new Peer(myPeerId, PEER_CFG);
+  peer.on('open', id => {
+    G.players = [{ id: myPeerId, name: myName, lives: MAX_LIVES, connected: true }];
+    document.getElementById('disp-code').textContent = roomCode;
+
+    const joinUrl = `${location.origin}${location.pathname}?room=${roomCode}`;
+    document.getElementById('qr-img').src =
+      `https://api.qrserver.com/v1/create-qr-code/?size=148x148&data=${encodeURIComponent(joinUrl)}&bgcolor=FFD000&color=E8200A&margin=2&format=png`;
+
+    updateLobbyHost();
+    show('s-lhost');
+  });
+
+  peer.on('connection', conn => {
+    conn.on('open', () => {
+      hConns[conn.peer] = conn;
+      conn.on('data', d => onHostMsg(conn.peer, d));
+      conn.on('close', () => {
+        const p = G.players.find(p => p.id === conn.peer);
+        if (p) { p.connected = false; broadcast(); updateLobbyHost(); }
+        delete hConns[conn.peer];
+      });
+    });
+  });
+
+  peer.on('error', err => {
+    if (err.type === 'unavailable-id') {
+      toast('Room code taken — refreshing for a new one...');
+      setTimeout(() => location.reload(), 2000);
+    } else if (err.type === 'network' || err.type === 'server-error') {
+      toast('⚠️ Server issue — check you\'re on HTTPS and reload');
+    } else {
+      toast('Connection error: ' + err.type);
+    }
+  });
+}
+
+function updateLobbyHost() {
+  const alive = G.players.filter(p => p.connected !== false);
+  document.getElementById('pcount').textContent = alive.length;
+  renderPlist('hl-plist', G.players, false);
+  const btn = document.getElementById('btn-start');
+  btn.disabled = alive.length < 2;
+}
+
+function onHostMsg(from, d) {
+  switch (d.type) {
+    case 'join': onPlayerJoin(from, d.name); break;
+    case 'bid': if (G.phase==='playing' && G.bidder===from) hostBid(from, d.qty, d.face); break;
+    case 'challenge': if (G.phase==='playing' && G.bidder===from) hostChallenge(from); break;
+  }
+}
+
+function onPlayerJoin(id, name) {
+  if (G.phase !== 'lobby') {
+    send(id, { type: 'err', msg: 'Game already started — wait for next round!' });
+    return;
+  }
+  const existing = G.players.find(p => p.id === id);
+  if (existing) { existing.connected = true; existing.name = name; }
+  else G.players.push({ id, name, lives: MAX_LIVES, connected: true });
+  broadcast();
+  updateLobbyHost();
+  toast(`${name} joined! 👋`);
+}
+
+function broadcast() {
+  const msg = {
+    type: 'state',
+    phase: G.phase,
+    players: G.players,
+    bidder: G.bidder,
+    bid: G.bid,
+    challenger: G.challenger,
+    loser: G.loser,
+    winner: G.winner,
+    nums: (G.phase === 'revealing' || G.phase === 'gameover') ? G.numbers : null,
+  };
+  Object.values(hConns).forEach(c => { if (c.open) c.send(msg); });
+}
+
+function send(id, data) {
+  const c = hConns[id];
+  if (c && c.open) c.send(data);
+}
+
+function doStart() {
+  const alive = G.players.filter(p => p.connected !== false);
+  if (alive.length < 2) return;
+  G.players.forEach(p => { p.lives = MAX_LIVES; });
+  newRound();
+}
+
+function newRound() {
+  const alive = G.players.filter(p => p.lives > 0 && p.connected !== false);
+  G.numbers = {};
+  alive.forEach(p => { G.numbers[p.id] = Math.floor(Math.random() * NUM_MAX) + NUM_MIN; });
+  G.bidder = alive[Math.floor(Math.random() * alive.length)].id;
+  G.bid = null;
+  G.challenger = null;
+  G.loser = null;
+  G.phase = 'playing';
+
+  alive.forEach(p => {
+    if (p.id !== myId()) send(p.id, { type: 'num', n: G.numbers[p.id] });
+    else myNumber = G.numbers[p.id];
+  });
+
+  broadcast();
+  renderPlay();
+  show('s-play');
+}
+
+function hostBid(from, qty, face) {
+  const cur = G.bid;
+  if (cur) {
+    const higher = qty > cur.qty || (qty === cur.qty && face > cur.face);
+    if (!higher) { send(from, { type:'err', msg:'Bid must be higher than the current one!' }); return; }
+  }
+  G.bid = { qty, face, by: from };
+  const alive = G.players.filter(p => p.lives > 0 && p.connected !== false);
+  const idx = alive.findIndex(p => p.id === from);
+  G.bidder = alive[(idx + 1) % alive.length].id;
+  broadcast();
+  renderPlay();
+}
+
+function hostChallenge(from) {
+  if (!G.bid) { send(from, {type:'err',msg:'Nothing to challenge yet!'}); return; }
+  G.challenger = from;
+  G.phase = 'revealing';
+
+  const { qty, face, by } = G.bid;
+  const actual = Object.values(G.numbers).filter(n => n === face).length;
+  G.loser = actual >= qty ? from : by;
+
+  const loserP = G.players.find(p => p.id === G.loser);
+  if (loserP) loserP.lives--;
+
+  const stillAlive = G.players.filter(p => p.lives > 0);
+  if (stillAlive.length === 1) {
+    G.phase = 'gameover';
+    G.winner = stillAlive[0].id;
+  }
+
+  broadcast();
+  renderReveal();
+  show('s-reveal');
+}
+
+function doNext() {
+  const alive = G.players.filter(p => p.lives > 0);
+  if (alive.length <= 1) { renderOver(); show('s-over'); return; }
+  newRound();
+}
+
+function doAgain() {
+  G.players.forEach(p => { p.lives = MAX_LIVES; });
+  newRound();
+}
+
+// ─────────────────────────────────────────
+// CLIENT
+// ─────────────────────────────────────────
+function doJoin() {
+  const name = (document.getElementById('join-name').value || document.getElementById('inp-name').value || '').trim();
+  const code = document.getElementById('join-code').value.trim().toUpperCase();
+  if (!name) { toast('Enter your name!'); return; }
+  if (!code || code.length !== 6) { toast('Enter a valid 6-letter code'); return; }
+
+  myName = name;
+  roomCode = code;
+  isHost = false;
+
+  const tmpId = `nb-${code}-p${Date.now()}`;
+  myPeerId = tmpId;
+  peer = new Peer(tmpId, PEER_CFG);
+
+  // Warn if not on HTTPS (WebRTC won't work on plain HTTP)
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+    toast('⚠️ Must be opened over HTTPS — deploy to Netlify first!', 6000);
+    return;
+  }
+
+  peer.on('open', () => {
+    attemptConnect(code, 0);
+  });
+
+  peer.on('error', err => {
+    if (err.type === 'peer-unavailable') {
+      toast('Room not found — make sure the host has the game open');
+    } else if (err.type === 'network' || err.type === 'server-error') {
+      toast('⚠️ Network issue — both players need HTTPS and internet');
+    } else {
+      toast('Error: ' + err.type);
+    }
+  });
+}
+
+// Retry connect up to 3 times with increasing delay
+function attemptConnect(code, attempt) {
+  const MAX_ATTEMPTS = 3;
+  if (attempt >= MAX_ATTEMPTS) {
+    toast(`Can't reach host after ${MAX_ATTEMPTS} tries — is the host on the same URL?`, 5000);
+    show('s-join');
+    return;
+  }
+
+  if (attempt > 0) toast(`Retrying connection… (${attempt}/${MAX_ATTEMPTS})`);
+
+  hostConn = peer.connect(`nb-${code}-host`, { reliable: true });
+
+  let opened = false;
+
+  const timeout = setTimeout(() => {
+    if (!opened) {
+      hostConn.close();
+      attemptConnect(code, attempt + 1);
+    }
+  }, 7000); // wait 7s before retry
+
+  hostConn.on('open', () => {
+    opened = true;
+    clearTimeout(timeout);
+    hostConn.send({ type: 'join', name: myName });
+    document.getElementById('pl-code').textContent = code;
+    show('s-lplayer');
+  });
+
+  hostConn.on('data', d => onClientMsg(d));
+
+  hostConn.on('close', () => {
+    if (opened) toast('Host disconnected');
+  });
+
+  hostConn.on('error', e => {
+    clearTimeout(timeout);
+    if (!opened) {
+      // Connection failed — retry
+      setTimeout(() => attemptConnect(code, attempt + 1), 1000);
+    } else {
+      toast('Connection lost');
+    }
+  });
+}
+
+function onClientMsg(d) {
+  switch (d.type) {
+    case 'num':
+      myNumber = d.n;
+      const el = document.getElementById('my-num');
+      if (el) el.textContent = myNumber;
+      break;
+    case 'state':
+      lastState = d;
+      applyState(d);
+      break;
+    case 'err':
+      toast('⚠️ ' + d.msg);
+      break;
+  }
+}
+
+function applyState(s) {
+  switch(s.phase) {
+    case 'lobby':
+      renderPlist('pl-plist', s.players, false);
+      if (!document.getElementById('s-lplayer').classList.contains('active')) show('s-lplayer');
+      break;
+    case 'playing':
+      renderClientPlay(s);
+      if (!document.getElementById('s-play').classList.contains('active')) show('s-play');
+      break;
+    case 'revealing':
+    case 'gameover':
+      renderClientReveal(s);
+      show('s-reveal');
+      if (s.phase === 'gameover') {
+        setTimeout(() => { renderClientOver(s); show('s-over'); }, 3500);
+      }
+      break;
+  }
+}
+
+// ─────────────────────────────────────────
+// PLAYING SCREEN
+// ─────────────────────────────────────────
+function renderPlay() {
+  if (!isHost) return;
+  document.getElementById('my-num').textContent = myNumber ?? '?';
+  const alive = G.players.filter(p => p.lives > 0);
+  document.getElementById('play-sub').textContent = `${alive.length} players · ${alive.length} secret numbers`;
+  renderBidContent(G.bid, G.players);
+  setTurn(G.bidder === myId(), G.bidder, G.players, G.bid);
+}
+
+function renderClientPlay(s) {
+  document.getElementById('my-num').textContent = myNumber ?? '?';
+  const alive = s.players.filter(p => p.lives > 0);
+  document.getElementById('play-sub').textContent = `${alive.length} players · ${alive.length} secret numbers`;
+  renderBidContent(s.bid, s.players);
+  setTurn(s.bidder === myId(), s.bidder, s.players, s.bid);
+}
+
+function renderBidContent(bid, players) {
+  const el = document.getElementById('bid-content');
+  if (!bid) {
+    el.innerHTML = '<div class="no-bid">No bid yet — first to go sets the opening</div>';
+  } else {
+    const p = players.find(p => p.id === bid.by);
+    el.innerHTML = `<div class="bid-main">${bid.qty} × ${bid.face}s</div>
+      <div class="bid-by">by ${esc(p ? p.name : '?')}</div>`;
+  }
+}
+
+function setTurn(isMe, bidderId, players, currentBid) {
+  const banner = document.getElementById('turn-banner');
+  const area = document.getElementById('bid-area');
+  const bluffBtn = document.getElementById('btn-bluff');
+
+  if (isMe) {
+    banner.className = 'turn mine';
+    banner.innerHTML = '🎯 Your turn to bid!';
+    area.style.display = 'flex';
+    bluffBtn.style.display = currentBid ? 'block' : 'none';
+    updatePreview();
+  } else {
+    const p = players.find(p => p.id === bidderId);
+    banner.className = 'turn wait';
+    banner.innerHTML = `Waiting for ${esc(p ? p.name : '...')}<span class="dots"></span>`;
+    area.style.display = 'none';
+  }
+}
+
+// ─────────────────────────────────────────
+// BID CONTROLS
+// ─────────────────────────────────────────
+function adj(t, d) {
+  if (t === 'q') {
+    const max = (isHost ? G.players : (lastState ? lastState.players : [])).filter(p=>p.lives>0).length * NUM_MAX || 48;
+    bq = Math.max(1, Math.min(max, bq + d));
+    document.getElementById('sv-q').textContent = bq;
+  } else {
+    bf = Math.max(NUM_MIN, Math.min(NUM_MAX, bf + d));
+    document.getElementById('sv-f').textContent = bf;
+  }
+  updatePreview();
+}
+
+function updatePreview() {
+  document.getElementById('bid-preview').textContent = `${bq} × ${bf}`;
+}
+
+function doBid() {
+  if (isHost) hostBid(myId(), bq, bf);
+  else hostConn.send({ type:'bid', qty:bq, face:bf });
+}
+
+function doChallenge() {
+  if (isHost) hostChallenge(myId());
+  else hostConn.send({ type:'challenge' });
+}
+
+// ─────────────────────────────────────────
+// REVEAL SCREEN
+// ─────────────────────────────────────────
+function renderReveal() {
+  if (!isHost) return;
+  _renderRevealWith(G.numbers, G.bid, G.players, G.loser, G.phase);
+  document.getElementById('btn-next').style.display = 'block';
+  document.getElementById('rev-wait').style.display = 'none';
+}
+
+function renderClientReveal(s) {
+  _renderRevealWith(s.nums || {}, s.bid, s.players, s.loser, s.phase);
+  document.getElementById('btn-next').style.display = 'none';
+  document.getElementById('rev-wait').style.display = 'block';
+}
+
+function _renderRevealWith(nums, bid, players, loserId, phase) {
+  const face = bid.face;
+  document.getElementById('rev-grid').innerHTML = players
+    .filter(p => nums[p.id] !== undefined)
+    .map(p => `<div class="rcard ${nums[p.id] === face ? 'lit' : ''}">
+      <div class="rnum">${nums[p.id]}</div>
+      <div class="rname">${esc(p.name)}</div>
+    </div>`).join('');
+
+  const bidder = players.find(p => p.id === bid.by);
+  document.getElementById('rev-bid').innerHTML =
+    `${bid.qty} × ${bid.face}s by ${esc(bidder ? bidder.name : '?')}`;
+
+  const actual = Object.values(nums).filter(n => n === face).length;
+  const bluffCalled = actual < bid.qty;
+  const loserP = players.find(p => p.id === loserId);
+  const loserName = esc(loserP ? loserP.name : '?');
+
+  const res = document.getElementById('rev-result');
+  if (bluffCalled) {
+    res.className = 'result good';
+    res.innerHTML = `<div class="result-title">🎉 Bluff! Only ${actual} found</div>
+      <div class="result-sub">${loserName} loses a life</div>`;
+  } else {
+    res.className = 'result bad';
+    res.innerHTML = `<div class="result-title">😱 True! ${actual} found</div>
+      <div class="result-sub">${loserName} loses a life</div>`;
+  }
+
+  renderPlist('rev-lives', players, true);
+}
+
+// ─────────────────────────────────────────
+// GAME OVER
+// ─────────────────────────────────────────
+function renderOver() {
+  const w = G.players.find(p => p.id === G.winner);
+  document.getElementById('win-name').textContent = w ? w.name : '???';
+  document.getElementById('btn-again').style.display = isHost ? 'block' : 'none';
+  renderPlist('over-list', [...G.players].sort((a,b) => b.lives - a.lives), true);
+}
+
+function renderClientOver(s) {
+  const w = s.players.find(p => p.id === s.winner);
+  document.getElementById('win-name').textContent = w ? w.name : '???';
+  document.getElementById('btn-again').style.display = 'none';
+  renderPlist('over-list', [...s.players].sort((a,b) => b.lives - a.lives), true);
+}
+
+// ─────────────────────────────────────────
+// URL AUTO-FILL
+// ─────────────────────────────────────────
+window.addEventListener('load', () => {
+  const p = new URLSearchParams(location.search);
+  const r = p.get('room');
+  if (r) {
+    document.getElementById('join-code').value = r.toUpperCase();
+    show('s-join');
+  }
+});
+</script>
+</body>
+</html>
