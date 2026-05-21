@@ -661,10 +661,11 @@ function hearts(n, max) {
 function myId() { return myPlayerId; }
 
 function initGun(code) {
-  gun = Gun({ peers: GUN_RELAYS, localStorage: false, radisk: false });
-  room = gun.get('nb-v2').get(code);
+  gun = Gun({ peers: GUN_RELAYS, localStorage: false });
+  room = gun.get('nb-v3').get(code);
   startTs = Date.now();
   seenKeys = new Set();
+  lastStateTs = 0;
 }
 
 function renderPlist(elId, players, showLives) {
@@ -712,23 +713,26 @@ function doHost() {
 
   G.players = [{ id: myPlayerId, name: myName, lives: MAX_LIVES, connected: true }];
 
-  // Listen for join requests from players
-  room.get('joins').map().on((data, key) => {
-    if (!data || !data.ts || seenKeys.has('j' + key)) return;
-    if (data.ts < startTs - 30000) return; // ignore joins older than 30s
-    seenKeys.add('j' + key);
-    if (G.phase === 'lobby') onPlayerJoin(data.pid, data.name);
+  // Listen for joins — players write their name as a plain string under their pid key
+  room.get('p').map().on((name, pid) => {
+    if (!name || typeof name !== 'string' || seenKeys.has('j' + pid)) return;
+    seenKeys.add('j' + pid);
+    if (G.phase === 'lobby') onPlayerJoin(pid, name);
   });
 
-  // Listen for player actions (bids, challenges)
-  room.get('actions').map().on((data, key) => {
-    if (!data || !data.ts || seenKeys.has('a' + key)) return;
-    if (data.ts < startTs) return; // ignore actions from before this session
-    seenKeys.add('a' + key);
-    if (G.phase === 'playing' && G.bidder === data.pid) {
-      if (data.type === 'bid') hostBid(data.pid, data.qty, data.face);
-      else if (data.type === 'challenge') hostChallenge(data.pid);
-    }
+  // Listen for actions — players write "bid|qty|face" or "challenge" as plain strings
+  room.get('a').map().on((val, key) => {
+    if (!val || typeof val !== 'string' || seenKeys.has(key)) return;
+    seenKeys.add(key);
+    // key format: "{pid}_{timestamp}"
+    const sepIdx = key.lastIndexOf('_');
+    const pid = key.substring(0, sepIdx);
+    const ts = parseInt(key.substring(sepIdx + 1)) || 0;
+    if (ts < startTs) return; // ignore actions from before this session
+    if (G.phase !== 'playing' || G.bidder !== pid) return;
+    const parts = val.split('|');
+    if (parts[0] === 'bid') hostBid(pid, parseInt(parts[1]), parseInt(parts[2]));
+    else if (parts[0] === 'challenge') hostChallenge(pid);
   });
 
   document.getElementById('disp-code').textContent = roomCode;
@@ -762,29 +766,30 @@ function onPlayerJoin(id, name) {
   toast(`${name} joined! 👋`);
 }
 
-// Write game state to Gun — all clients receive this via .on()
+// Write game state as a single JSON string — avoids Gun object-merge issues
 function broadcast() {
   const showNums = G.phase === 'revealing' || G.phase === 'gameover';
-  room.get('state').put({
+  const payload = JSON.stringify({
     phase: G.phase,
-    players: JSON.stringify(G.players),
-    bidder: G.bidder || '',
-    bid: G.bid ? JSON.stringify(G.bid) : '',
-    challenger: G.challenger || '',
-    loser: G.loser || '',
-    winner: G.winner || '',
-    nums: showNums ? JSON.stringify(G.numbers) : '{}',
+    players: G.players,
+    bidder: G.bidder || null,
+    bid: G.bid || null,
+    challenger: G.challenger || null,
+    loser: G.loser || null,
+    winner: G.winner || null,
+    nums: showNums ? G.numbers : {},
     ts: Date.now(),
-    session: startTs,
   });
+  room.get('s').put(payload);
 }
 
-// Send private data to a specific player (e.g. their secret number)
+// Send private data to a specific player using simple string values
 function send(pid, data) {
   if (data.type === 'num') {
-    room.get('priv').get(pid).put({ n: data.n, ts: Date.now(), sid: startTs });
+    // Store as "num:{value}:{sessionTs}" so client can verify it's fresh
+    room.get('n').get(pid).put('num:' + data.n + ':' + startTs);
   } else if (data.type === 'err') {
-    room.get('priv').get(pid).put({ err: data.msg, ts: Date.now(), sid: startTs });
+    room.get('n').get(pid).put('err:' + data.msg);
   }
 }
 
@@ -879,54 +884,51 @@ function doJoin() {
 
   initGun(code);
 
-  // Listen for game state updates from host
-  room.get('state').on((data) => {
-    if (!data || !data.ts) return;
-    if (data.ts <= lastStateTs) return; // deduplicate
-    if (data.ts < startTs - 120000) return; // ignore data older than 2 min
-    lastStateTs = data.ts;
+  // Listen for game state — stored as a single JSON string
+  room.get('s').on((payload) => {
+    if (!payload || typeof payload !== 'string') return;
     try {
-      const s = {
-        phase: data.phase,
-        players: JSON.parse(data.players || '[]'),
-        bidder: data.bidder || null,
-        bid: data.bid ? JSON.parse(data.bid) : null,
-        challenger: data.challenger || null,
-        loser: data.loser || null,
-        winner: data.winner || null,
-        nums: JSON.parse(data.nums || '{}'),
-      };
-      lastStatePlayers = s.players;
+      const s = JSON.parse(payload);
+      if (!s.ts || s.ts <= lastStateTs) return;
+      lastStateTs = s.ts;
+      lastStatePlayers = s.players || [];
       applyState(s);
     } catch(e) { console.warn('State parse error', e); }
   });
 
-  // Listen for private messages (secret number, errors)
-  let lastPrivTs = 0;
-  room.get('priv').get(myPlayerId).on((data) => {
-    if (!data || !data.ts || data.ts <= lastPrivTs) return;
-    if (data.ts < startTs - 30000) return;
-    lastPrivTs = data.ts;
-    if (data.n !== undefined) {
-      myNumber = data.n;
+  // Listen for secret number — stored as "num:{n}:{sessionTs}" or "err:{msg}"
+  let lastNumVal = '';
+  room.get('n').get(myPlayerId).on((val) => {
+    if (!val || typeof val !== 'string' || val === lastNumVal) return;
+    lastNumVal = val;
+    const parts = val.split(':');
+    if (parts[0] === 'num') {
+      const n = parseInt(parts[1]);
+      const sid = parseInt(parts[2]) || 0;
+      if (sid < startTs - 60000) return; // stale from old session
+      myNumber = n;
       const el = document.getElementById('my-num');
       if (el) el.textContent = myNumber;
+    } else if (parts[0] === 'err') {
+      toast('⚠️ ' + parts.slice(1).join(':'));
     }
-    if (data.err) toast('⚠️ ' + data.err);
   });
 
-  // Write join request — host will pick this up
-  room.get('joins').get(myPlayerId).put({ pid: myPlayerId, name: myName, ts: Date.now() });
+  // Write join — just the player name as a plain string under their id
+  room.get('p').get(myPlayerId).put(myName);
 
   document.getElementById('pl-code').textContent = code;
   show('s-lplayer');
   toast('Joining... you\'ll appear on host\'s screen shortly 👋');
 }
 
-// Players send actions (bids/challenges) to Gun — host picks them up
+// Players send actions to Gun as plain strings — host picks them up
 function sendAction(data) {
-  const key = myPlayerId + Date.now();
-  room.get('actions').get(key).put({ ...data, pid: myPlayerId, ts: Date.now() });
+  const key = myPlayerId + '_' + Date.now();
+  const val = data.type === 'bid'
+    ? 'bid|' + data.qty + '|' + data.face
+    : 'challenge';
+  room.get('a').get(key).put(val);
 }
 
 function applyState(s) {
