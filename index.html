@@ -583,24 +583,7 @@
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
-<script>
-// Robust PeerJS config — explicit server + multiple STUN servers
-const PEER_CFG = {
-  debug: 0,
-  host: '0.peerjs.com',
-  port: 443,
-  secure: true,
-  config: {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:global.stun.twilio.com:3478' },
-    ]
-  }
-};
-</script>
+<script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
 <script>
 // ─────────────────────────────────────────
 // CONSTANTS
@@ -608,19 +591,23 @@ const PEER_CFG = {
 const MAX_LIVES = 3;
 const NUM_MIN = 1;
 const NUM_MAX = 6;
+// Gun.js relay servers (no WebRTC, works on all networks)
+const GUN_RELAYS = ['https://gun.eco/gun', 'https://relay.peer.ooo/gun'];
 
 // ─────────────────────────────────────────
 // STATE
 // ─────────────────────────────────────────
-let peer = null;
+let gun = null;
+let room = null;
 let myName = '';
 let roomCode = '';
 let isHost = false;
 let myNumber = null;
-let myPeerId = null;
+let myPlayerId = null;  // unique ID for this player/session
+let startTs = 0;        // when this session started (to ignore stale Gun data)
+let seenKeys = new Set(); // deduplicate Gun events
 
-// Host-only
-let hConns = {};
+// Host game state
 let G = {
   phase: 'lobby',
   players: [],
@@ -633,8 +620,8 @@ let G = {
 };
 
 // Client-only
-let hostConn = null;
-let lastState = null;
+let lastStateTs = 0;
+let lastStatePlayers = [];
 
 // Bid UI
 let bq = 1, bf = 1;
@@ -671,7 +658,14 @@ function hearts(n, max) {
   return h;
 }
 
-function myId() { return myPeerId; }
+function myId() { return myPlayerId; }
+
+function initGun(code) {
+  gun = Gun({ peers: GUN_RELAYS, localStorage: false, radisk: false });
+  room = gun.get('nb-v2').get(code);
+  startTs = Date.now();
+  seenKeys = new Set();
+}
 
 function renderPlist(elId, players, showLives) {
   const el = document.getElementById(elId);
@@ -709,51 +703,42 @@ function doHost() {
   const name = document.getElementById('inp-name').value.trim();
   if (!name) { toast('Enter your name first!'); return; }
 
-  if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-    toast('⚠️ Open this over HTTPS (e.g. via Netlify) for multiplayer to work', 6000);
-    return;
-  }
-
   myName = name;
   isHost = true;
+  myPlayerId = 'host-' + Date.now();
   roomCode = genCode();
-  myPeerId = `nb-${roomCode}-host`;
 
-  peer = new Peer(myPeerId, PEER_CFG);
-  peer.on('open', id => {
-    G.players = [{ id: myPeerId, name: myName, lives: MAX_LIVES, connected: true }];
-    document.getElementById('disp-code').textContent = roomCode;
+  initGun(roomCode);
 
-    const joinUrl = `${location.origin}${location.pathname}?room=${roomCode}`;
-    document.getElementById('qr-img').src =
-      `https://api.qrserver.com/v1/create-qr-code/?size=148x148&data=${encodeURIComponent(joinUrl)}&bgcolor=FFD000&color=E8200A&margin=2&format=png`;
+  G.players = [{ id: myPlayerId, name: myName, lives: MAX_LIVES, connected: true }];
 
-    updateLobbyHost();
-    show('s-lhost');
+  // Listen for join requests from players
+  room.get('joins').map().on((data, key) => {
+    if (!data || !data.ts || seenKeys.has('j' + key)) return;
+    if (data.ts < startTs - 30000) return; // ignore joins older than 30s
+    seenKeys.add('j' + key);
+    if (G.phase === 'lobby') onPlayerJoin(data.pid, data.name);
   });
 
-  peer.on('connection', conn => {
-    conn.on('open', () => {
-      hConns[conn.peer] = conn;
-      conn.on('data', d => onHostMsg(conn.peer, d));
-      conn.on('close', () => {
-        const p = G.players.find(p => p.id === conn.peer);
-        if (p) { p.connected = false; broadcast(); updateLobbyHost(); }
-        delete hConns[conn.peer];
-      });
-    });
-  });
-
-  peer.on('error', err => {
-    if (err.type === 'unavailable-id') {
-      toast('Room code taken — refreshing for a new one...');
-      setTimeout(() => location.reload(), 2000);
-    } else if (err.type === 'network' || err.type === 'server-error') {
-      toast('⚠️ Server issue — check you\'re on HTTPS and reload');
-    } else {
-      toast('Connection error: ' + err.type);
+  // Listen for player actions (bids, challenges)
+  room.get('actions').map().on((data, key) => {
+    if (!data || !data.ts || seenKeys.has('a' + key)) return;
+    if (data.ts < startTs) return; // ignore actions from before this session
+    seenKeys.add('a' + key);
+    if (G.phase === 'playing' && G.bidder === data.pid) {
+      if (data.type === 'bid') hostBid(data.pid, data.qty, data.face);
+      else if (data.type === 'challenge') hostChallenge(data.pid);
     }
   });
+
+  document.getElementById('disp-code').textContent = roomCode;
+  const joinUrl = `${location.origin}${location.pathname}?room=${roomCode}`;
+  document.getElementById('qr-img').src =
+    `https://api.qrserver.com/v1/create-qr-code/?size=148x148&data=${encodeURIComponent(joinUrl)}&bgcolor=FFD000&color=E8200A&margin=2&format=png`;
+
+  broadcast(); // write initial lobby state
+  updateLobbyHost();
+  show('s-lhost');
 }
 
 function updateLobbyHost() {
@@ -762,14 +747,6 @@ function updateLobbyHost() {
   renderPlist('hl-plist', G.players, false);
   const btn = document.getElementById('btn-start');
   btn.disabled = alive.length < 2;
-}
-
-function onHostMsg(from, d) {
-  switch (d.type) {
-    case 'join': onPlayerJoin(from, d.name); break;
-    case 'bid': if (G.phase==='playing' && G.bidder===from) hostBid(from, d.qty, d.face); break;
-    case 'challenge': if (G.phase==='playing' && G.bidder===from) hostChallenge(from); break;
-  }
 }
 
 function onPlayerJoin(id, name) {
@@ -785,24 +762,30 @@ function onPlayerJoin(id, name) {
   toast(`${name} joined! 👋`);
 }
 
+// Write game state to Gun — all clients receive this via .on()
 function broadcast() {
-  const msg = {
-    type: 'state',
+  const showNums = G.phase === 'revealing' || G.phase === 'gameover';
+  room.get('state').put({
     phase: G.phase,
-    players: G.players,
-    bidder: G.bidder,
-    bid: G.bid,
-    challenger: G.challenger,
-    loser: G.loser,
-    winner: G.winner,
-    nums: (G.phase === 'revealing' || G.phase === 'gameover') ? G.numbers : null,
-  };
-  Object.values(hConns).forEach(c => { if (c.open) c.send(msg); });
+    players: JSON.stringify(G.players),
+    bidder: G.bidder || '',
+    bid: G.bid ? JSON.stringify(G.bid) : '',
+    challenger: G.challenger || '',
+    loser: G.loser || '',
+    winner: G.winner || '',
+    nums: showNums ? JSON.stringify(G.numbers) : '{}',
+    ts: Date.now(),
+    session: startTs,
+  });
 }
 
-function send(id, data) {
-  const c = hConns[id];
-  if (c && c.open) c.send(data);
+// Send private data to a specific player (e.g. their secret number)
+function send(pid, data) {
+  if (data.type === 'num') {
+    room.get('priv').get(pid).put({ n: data.n, ts: Date.now(), sid: startTs });
+  } else if (data.type === 'err') {
+    room.get('priv').get(pid).put({ err: data.msg, ts: Date.now(), sid: startTs });
+  }
 }
 
 function doStart() {
@@ -892,94 +875,58 @@ function doJoin() {
   myName = name;
   roomCode = code;
   isHost = false;
+  myPlayerId = 'p' + Date.now() + Math.random().toString(36).slice(2, 5);
 
-  const tmpId = `nb-${code}-p${Date.now()}`;
-  myPeerId = tmpId;
-  peer = new Peer(tmpId, PEER_CFG);
+  initGun(code);
 
-  // Warn if not on HTTPS (WebRTC won't work on plain HTTP)
-  if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-    toast('⚠️ Must be opened over HTTPS — deploy to Netlify first!', 6000);
-    return;
-  }
-
-  peer.on('open', () => {
-    attemptConnect(code, 0);
+  // Listen for game state updates from host
+  room.get('state').on((data) => {
+    if (!data || !data.ts) return;
+    if (data.ts <= lastStateTs) return; // deduplicate
+    if (data.ts < startTs - 120000) return; // ignore data older than 2 min
+    lastStateTs = data.ts;
+    try {
+      const s = {
+        phase: data.phase,
+        players: JSON.parse(data.players || '[]'),
+        bidder: data.bidder || null,
+        bid: data.bid ? JSON.parse(data.bid) : null,
+        challenger: data.challenger || null,
+        loser: data.loser || null,
+        winner: data.winner || null,
+        nums: JSON.parse(data.nums || '{}'),
+      };
+      lastStatePlayers = s.players;
+      applyState(s);
+    } catch(e) { console.warn('State parse error', e); }
   });
 
-  peer.on('error', err => {
-    if (err.type === 'peer-unavailable') {
-      toast('Room not found — make sure the host has the game open');
-    } else if (err.type === 'network' || err.type === 'server-error') {
-      toast('⚠️ Network issue — both players need HTTPS and internet');
-    } else {
-      toast('Error: ' + err.type);
-    }
-  });
-}
-
-// Retry connect up to 3 times with increasing delay
-function attemptConnect(code, attempt) {
-  const MAX_ATTEMPTS = 3;
-  if (attempt >= MAX_ATTEMPTS) {
-    toast(`Can't reach host after ${MAX_ATTEMPTS} tries — is the host on the same URL?`, 5000);
-    show('s-join');
-    return;
-  }
-
-  if (attempt > 0) toast(`Retrying connection… (${attempt}/${MAX_ATTEMPTS})`);
-
-  hostConn = peer.connect(`nb-${code}-host`, { reliable: true });
-
-  let opened = false;
-
-  const timeout = setTimeout(() => {
-    if (!opened) {
-      hostConn.close();
-      attemptConnect(code, attempt + 1);
-    }
-  }, 7000); // wait 7s before retry
-
-  hostConn.on('open', () => {
-    opened = true;
-    clearTimeout(timeout);
-    hostConn.send({ type: 'join', name: myName });
-    document.getElementById('pl-code').textContent = code;
-    show('s-lplayer');
-  });
-
-  hostConn.on('data', d => onClientMsg(d));
-
-  hostConn.on('close', () => {
-    if (opened) toast('Host disconnected');
-  });
-
-  hostConn.on('error', e => {
-    clearTimeout(timeout);
-    if (!opened) {
-      // Connection failed — retry
-      setTimeout(() => attemptConnect(code, attempt + 1), 1000);
-    } else {
-      toast('Connection lost');
-    }
-  });
-}
-
-function onClientMsg(d) {
-  switch (d.type) {
-    case 'num':
-      myNumber = d.n;
+  // Listen for private messages (secret number, errors)
+  let lastPrivTs = 0;
+  room.get('priv').get(myPlayerId).on((data) => {
+    if (!data || !data.ts || data.ts <= lastPrivTs) return;
+    if (data.ts < startTs - 30000) return;
+    lastPrivTs = data.ts;
+    if (data.n !== undefined) {
+      myNumber = data.n;
       const el = document.getElementById('my-num');
       if (el) el.textContent = myNumber;
-      break;
-    case 'state':
-      lastState = d;
-      applyState(d);
-      break;
-    case 'err':
-      toast('⚠️ ' + d.msg);
-      break;
-  }
+    }
+    if (data.err) toast('⚠️ ' + data.err);
+  });
+
+  // Write join request — host will pick this up
+  room.get('joins').get(myPlayerId).put({ pid: myPlayerId, name: myName, ts: Date.now() });
+
+  document.getElementById('pl-code').textContent = code;
+  show('s-lplayer');
+  toast('Joining... you\'ll appear on host\'s screen shortly 👋');
+}
+
+// Players send actions (bids/challenges) to Gun — host picks them up
+function sendAction(data) {
+  const key = myPlayerId + Date.now();
+  room.get('actions').get(key).put({ ...data, pid: myPlayerId, ts: Date.now() });
 }
 
 function applyState(s) {
@@ -1058,7 +1005,7 @@ function setTurn(isMe, bidderId, players, currentBid) {
 // ─────────────────────────────────────────
 function adj(t, d) {
   if (t === 'q') {
-    const max = (isHost ? G.players : (lastState ? lastState.players : [])).filter(p=>p.lives>0).length * NUM_MAX || 48;
+    const max = (isHost ? G.players : lastStatePlayers).filter(p=>p.lives>0).length * NUM_MAX || 48;
     bq = Math.max(1, Math.min(max, bq + d));
     document.getElementById('sv-q').textContent = bq;
   } else {
@@ -1074,12 +1021,12 @@ function updatePreview() {
 
 function doBid() {
   if (isHost) hostBid(myId(), bq, bf);
-  else hostConn.send({ type:'bid', qty:bq, face:bf });
+  else sendAction({ type: 'bid', qty: bq, face: bf });
 }
 
 function doChallenge() {
   if (isHost) hostChallenge(myId());
-  else hostConn.send({ type:'challenge' });
+  else sendAction({ type: 'challenge' });
 }
 
 // ─────────────────────────────────────────
@@ -1093,7 +1040,7 @@ function renderReveal() {
 }
 
 function renderClientReveal(s) {
-  _renderRevealWith(s.nums || {}, s.bid, s.players, s.loser, s.phase);
+  _renderRevealWith(s.nums && Object.keys(s.nums).length ? s.nums : {}, s.bid, s.players, s.loser, s.phase);
   document.getElementById('btn-next').style.display = 'none';
   document.getElementById('rev-wait').style.display = 'block';
 }
