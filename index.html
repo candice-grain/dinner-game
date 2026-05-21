@@ -583,7 +583,7 @@
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 <script>
 // ─────────────────────────────────────────
 // CONSTANTS
@@ -591,21 +591,25 @@
 const MAX_LIVES = 3;
 const NUM_MIN = 1;
 const NUM_MAX = 6;
-// Gun.js relay servers (no WebRTC, works on all networks)
-const GUN_RELAYS = ['https://gun.eco/gun', 'https://relay.peer.ooo/gun'];
+// MQTT brokers — tries primary first, falls back to secondary
+const MQTT_BROKERS = [
+  'wss://test.mosquitto.org:8081',
+  'wss://broker.hivemq.com:8884',
+];
 
 // ─────────────────────────────────────────
 // STATE
 // ─────────────────────────────────────────
-let gun = null;
-let room = null;
+let mqttClient = null;
+let mqttConnected = false;
+let mqttBrokerIdx = 0;
 let myName = '';
 let roomCode = '';
 let isHost = false;
 let myNumber = null;
-let myPlayerId = null;  // unique ID for this player/session
-let startTs = 0;        // when this session started (to ignore stale Gun data)
-let seenKeys = new Set(); // deduplicate Gun events
+let myPlayerId = null;
+let startTs = 0;
+let seenKeys = new Set();
 
 // Host game state
 let G = {
@@ -660,12 +664,154 @@ function hearts(n, max) {
 
 function myId() { return myPlayerId; }
 
-function initGun(code) {
-  gun = Gun({ peers: GUN_RELAYS, localStorage: false });
-  room = gun.get('nb-v3').get(code);
+// ─────────────────────────────────────────
+// MQTT NETWORKING
+// ─────────────────────────────────────────
+function topicOf(suffix) {
+  return 'nb/' + roomCode + '/' + suffix;
+}
+
+function initMQTT(code, onReady) {
+  roomCode = code;
   startTs = Date.now();
   seenKeys = new Set();
   lastStateTs = 0;
+
+  const broker = MQTT_BROKERS[mqttBrokerIdx % MQTT_BROKERS.length];
+  const clientId = 'nb' + Math.random().toString(36).slice(2, 10);
+
+  mqttClient = mqtt.connect(broker, {
+    clientId,
+    clean: true,
+    connectTimeout: 8000,
+    reconnectPeriod: 4000,
+    keepalive: 30,
+  });
+
+  let readyCalled = false;
+
+  mqttClient.on('connect', () => {
+    mqttConnected = true;
+    if (!readyCalled) {
+      readyCalled = true;
+      onReady();
+    }
+  });
+
+  mqttClient.on('reconnect', () => {
+    toast('Reconnecting...');
+  });
+
+  mqttClient.on('error', (err) => {
+    console.warn('MQTT error', err);
+    // try next broker on next reconnect
+    mqttBrokerIdx++;
+  });
+
+  mqttClient.on('offline', () => {
+    mqttConnected = false;
+  });
+
+  mqttClient.on('message', (topic, buf) => {
+    handleMQTTMessage(topic, buf.toString());
+  });
+
+  // fallback: if no connect within 9s, show error
+  setTimeout(() => {
+    if (!readyCalled) {
+      toast('⚠️ Connection slow — check your internet', 5000);
+    }
+  }, 9000);
+}
+
+function handleMQTTMessage(topic, msg) {
+  const prefix = 'nb/' + roomCode + '/';
+  if (!topic.startsWith(prefix)) return;
+  const sub = topic.slice(prefix.length);
+
+  if (isHost) {
+    // join/{pid}  →  "name|timestamp"
+    if (sub.startsWith('join/')) {
+      const pid = sub.slice(5);
+      if (!msg) return;
+      const pipeIdx = msg.lastIndexOf('|');
+      const joinName = pipeIdx >= 0 ? msg.slice(0, pipeIdx) : msg;
+      const joinTs = pipeIdx >= 0 ? parseInt(msg.slice(pipeIdx + 1)) || 0 : 0;
+      // reject stale retained messages from old sessions
+      if (joinTs < startTs - 10000) return;
+      const dedupKey = 'j' + pid + ':' + joinTs;
+      if (seenKeys.has(dedupKey)) return;
+      seenKeys.add(dedupKey);
+      if (G.phase === 'lobby') onPlayerJoin(pid, joinName);
+    }
+    // action/{pid}  →  "timestamp|bid|qty|face" or "timestamp|challenge"
+    else if (sub.startsWith('action/')) {
+      const pid = sub.slice(7);
+      if (!msg) return;
+      const parts = msg.split('|');
+      const ts = parseInt(parts[0]) || 0;
+      if (ts < startTs) return; // from before this session
+      const dedupKey = pid + ':' + ts;
+      if (seenKeys.has(dedupKey)) return;
+      seenKeys.add(dedupKey);
+      if (G.phase !== 'playing' || G.bidder !== pid) return;
+      if (parts[1] === 'bid') hostBid(pid, parseInt(parts[2]), parseInt(parts[3]));
+      else if (parts[1] === 'challenge') hostChallenge(pid);
+    }
+  } else {
+    // state
+    if (sub === 'state') {
+      try {
+        const s = JSON.parse(msg);
+        if (!s.ts || s.ts <= lastStateTs) return;
+        lastStateTs = s.ts;
+        lastStatePlayers = s.players || [];
+        applyState(s);
+      } catch(e) { console.warn('State parse error', e); }
+    }
+    // num/{myPlayerId}  →  "num:value:sessionTs" or "err:message"
+    else if (sub === 'num/' + myPlayerId) {
+      const parts = msg.split(':');
+      if (parts[0] === 'num') {
+        const n = parseInt(parts[1]);
+        const sid = parseInt(parts[2]) || 0;
+        if (sid < startTs - 60000) return; // stale from old session
+        myNumber = n;
+        const el = document.getElementById('my-num');
+        if (el) el.textContent = myNumber;
+      } else if (parts[0] === 'err') {
+        toast('⚠️ ' + parts.slice(1).join(':'));
+      }
+    }
+  }
+}
+
+// Publish game state to all players (retained so late joiners get it)
+function broadcast() {
+  if (!mqttClient || !mqttConnected) return;
+  const showNums = G.phase === 'revealing' || G.phase === 'gameover';
+  const payload = JSON.stringify({
+    phase: G.phase,
+    players: G.players,
+    bidder: G.bidder || null,
+    bid: G.bid || null,
+    challenger: G.challenger || null,
+    loser: G.loser || null,
+    winner: G.winner || null,
+    nums: showNums ? G.numbers : {},
+    ts: Date.now(),
+  });
+  mqttClient.publish(topicOf('state'), payload, { retain: true, qos: 1 });
+}
+
+// Send private data to a specific player
+function send(pid, data) {
+  if (!mqttClient || !mqttConnected) return;
+  if (data.type === 'num') {
+    mqttClient.publish(topicOf('num/' + pid), 'num:' + data.n + ':' + startTs, { retain: true, qos: 1 });
+  } else if (data.type === 'err') {
+    mqttClient.publish(topicOf('num/' + pid), 'err:' + data.msg, { retain: false, qos: 0 });
+  }
 }
 
 function renderPlist(elId, players, showLives) {
@@ -707,42 +853,29 @@ function doHost() {
   myName = name;
   isHost = true;
   myPlayerId = 'host-' + Date.now();
-  roomCode = genCode();
-
-  initGun(roomCode);
+  const code = genCode();
 
   G.players = [{ id: myPlayerId, name: myName, lives: MAX_LIVES, connected: true }];
 
-  // Listen for joins — players write their name as a plain string under their pid key
-  room.get('p').map().on((name, pid) => {
-    if (!name || typeof name !== 'string' || seenKeys.has('j' + pid)) return;
-    seenKeys.add('j' + pid);
-    if (G.phase === 'lobby') onPlayerJoin(pid, name);
-  });
-
-  // Listen for actions — players write "bid|qty|face" or "challenge" as plain strings
-  room.get('a').map().on((val, key) => {
-    if (!val || typeof val !== 'string' || seenKeys.has(key)) return;
-    seenKeys.add(key);
-    // key format: "{pid}_{timestamp}"
-    const sepIdx = key.lastIndexOf('_');
-    const pid = key.substring(0, sepIdx);
-    const ts = parseInt(key.substring(sepIdx + 1)) || 0;
-    if (ts < startTs) return; // ignore actions from before this session
-    if (G.phase !== 'playing' || G.bidder !== pid) return;
-    const parts = val.split('|');
-    if (parts[0] === 'bid') hostBid(pid, parseInt(parts[1]), parseInt(parts[2]));
-    else if (parts[0] === 'challenge') hostChallenge(pid);
-  });
-
-  document.getElementById('disp-code').textContent = roomCode;
-  const joinUrl = `${location.origin}${location.pathname}?room=${roomCode}`;
-  document.getElementById('qr-img').src =
-    `https://api.qrserver.com/v1/create-qr-code/?size=148x148&data=${encodeURIComponent(joinUrl)}&bgcolor=FFD000&color=E8200A&margin=2&format=png`;
-
-  broadcast(); // write initial lobby state
+  document.getElementById('disp-code').textContent = '......';
   updateLobbyHost();
   show('s-lhost');
+  toast('Setting up room...');
+
+  initMQTT(code, () => {
+    // Subscribe to join requests and player actions
+    mqttClient.subscribe(topicOf('join/#'), { qos: 1 });
+    mqttClient.subscribe(topicOf('action/#'), { qos: 1 });
+
+    document.getElementById('disp-code').textContent = roomCode;
+    const joinUrl = `${location.origin}${location.pathname}?room=${roomCode}`;
+    document.getElementById('qr-img').src =
+      `https://api.qrserver.com/v1/create-qr-code/?size=148x148&data=${encodeURIComponent(joinUrl)}&bgcolor=FFD000&color=E8200A&margin=2&format=png`;
+
+    broadcast();
+    updateLobbyHost();
+    toast('Room ready! Share the code 🎲');
+  });
 }
 
 function updateLobbyHost() {
@@ -764,33 +897,6 @@ function onPlayerJoin(id, name) {
   broadcast();
   updateLobbyHost();
   toast(`${name} joined! 👋`);
-}
-
-// Write game state as a single JSON string — avoids Gun object-merge issues
-function broadcast() {
-  const showNums = G.phase === 'revealing' || G.phase === 'gameover';
-  const payload = JSON.stringify({
-    phase: G.phase,
-    players: G.players,
-    bidder: G.bidder || null,
-    bid: G.bid || null,
-    challenger: G.challenger || null,
-    loser: G.loser || null,
-    winner: G.winner || null,
-    nums: showNums ? G.numbers : {},
-    ts: Date.now(),
-  });
-  room.get('s').put(payload);
-}
-
-// Send private data to a specific player using simple string values
-function send(pid, data) {
-  if (data.type === 'num') {
-    // Store as "num:{value}:{sessionTs}" so client can verify it's fresh
-    room.get('n').get(pid).put('num:' + data.n + ':' + startTs);
-  } else if (data.type === 'err') {
-    room.get('n').get(pid).put('err:' + data.msg);
-  }
 }
 
 function doStart() {
@@ -878,57 +984,35 @@ function doJoin() {
   if (!code || code.length !== 6) { toast('Enter a valid 6-letter code'); return; }
 
   myName = name;
-  roomCode = code;
   isHost = false;
   myPlayerId = 'p' + Date.now() + Math.random().toString(36).slice(2, 5);
 
-  initGun(code);
-
-  // Listen for game state — stored as a single JSON string
-  room.get('s').on((payload) => {
-    if (!payload || typeof payload !== 'string') return;
-    try {
-      const s = JSON.parse(payload);
-      if (!s.ts || s.ts <= lastStateTs) return;
-      lastStateTs = s.ts;
-      lastStatePlayers = s.players || [];
-      applyState(s);
-    } catch(e) { console.warn('State parse error', e); }
-  });
-
-  // Listen for secret number — stored as "num:{n}:{sessionTs}" or "err:{msg}"
-  let lastNumVal = '';
-  room.get('n').get(myPlayerId).on((val) => {
-    if (!val || typeof val !== 'string' || val === lastNumVal) return;
-    lastNumVal = val;
-    const parts = val.split(':');
-    if (parts[0] === 'num') {
-      const n = parseInt(parts[1]);
-      const sid = parseInt(parts[2]) || 0;
-      if (sid < startTs - 60000) return; // stale from old session
-      myNumber = n;
-      const el = document.getElementById('my-num');
-      if (el) el.textContent = myNumber;
-    } else if (parts[0] === 'err') {
-      toast('⚠️ ' + parts.slice(1).join(':'));
-    }
-  });
-
-  // Write join — just the player name as a plain string under their id
-  room.get('p').get(myPlayerId).put(myName);
-
   document.getElementById('pl-code').textContent = code;
   show('s-lplayer');
-  toast('Joining... you\'ll appear on host\'s screen shortly 👋');
+  toast('Connecting...');
+
+  initMQTT(code, () => {
+    // Subscribe to game state and our private number channel
+    mqttClient.subscribe(topicOf('state'), { qos: 1 });
+    mqttClient.subscribe(topicOf('num/' + myPlayerId), { qos: 1 });
+
+    // Announce ourselves to the host (retained so host sees us even if they reconnect)
+    const joinPayload = myName + '|' + startTs;
+    mqttClient.publish(topicOf('join/' + myPlayerId), joinPayload, { retain: true, qos: 1 });
+
+    toast('Connected! You\'ll appear on host\'s screen 👋');
+  });
 }
 
-// Players send actions to Gun as plain strings — host picks them up
+// Send bid or challenge to the host
 function sendAction(data) {
-  const key = myPlayerId + '_' + Date.now();
-  const val = data.type === 'bid'
-    ? 'bid|' + data.qty + '|' + data.face
-    : 'challenge';
-  room.get('a').get(key).put(val);
+  if (!mqttClient || !mqttConnected) { toast('Not connected yet!'); return; }
+  const ts = Date.now();
+  let val;
+  if (data.type === 'bid') val = ts + '|bid|' + data.qty + '|' + data.face;
+  else val = ts + '|challenge';
+  // Not retained — actions are one-shot events
+  mqttClient.publish(topicOf('action/' + myPlayerId), val, { retain: false, qos: 1 });
 }
 
 function applyState(s) {
